@@ -23,7 +23,7 @@ Usage: $0 [-x xsize] [-y ysize] [-l] [-p precision] [-d deltamin] [-T srs] [-S s
         -p precision is the number of decimal points used in the SVG for position coordinates; defaults to 1
         -d deltamin is the minimum change in either x or y from the previously plotted point in a line or polygon
            for the next one to be plotted.  This reduces file size by omitting points that are very, very close to
-           each other.  Good results are achieved with -d1 -p0.5, which are the defaults.
+           each other.  Good results are achieved with -p1 -d0.5, which are the defaults.
 
         An "inputspec" contains the shapefile path (with or without .shp) and a list of processing/rendering options
            separated by commas but no spaces.  (Spaces are okay in some options where needed, but not between.)
