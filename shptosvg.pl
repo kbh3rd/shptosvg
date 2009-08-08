@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-my $LAST_UPDATE = '$Date: 2009/08/04 08:43:19 $' ;
+my $LAST_UPDATE = '$Date: 2009/08/08 01:14:01 $' ;
 
 #------------------------------------------------------------------------
 # Copyright (c) 2009, Ken Hardy
@@ -35,8 +35,11 @@ use SVG ;
 use Geo::Point ;
 use Geo::Proj4 ;
 
-$default_width = 72 * 8 ;
-$default_height = 72 * 10 ;
+my $default_width = 72 * 8 ;
+my $default_height = 72 * 10 ;
+
+
+#-- basic command line parameter processing
 
 require 'getopt.pl' ;
 &Getopt ('xyTpd') ;
@@ -53,6 +56,7 @@ Usage: $0 [-x xsize] [-y ysize] [-l] [-p precision] [-d deltamin] [-T srs] [-S s
         -d deltamin is the minimum change in either x or y from the previously plotted point in a line or polygon
            for the next one to be plotted.  This reduces file size by omitting points that are very, very close to
            each other.  Good results are achieved with -p1 -d0.5, which are the defaults.
+	-v for verbose progress on stderr
 
         An "inputspec" contains the shapefile path (with or without .shp) and a list of processing/rendering options
            separated by commas but no spaces.  (Spaces are okay in some options where needed, but not between.)
@@ -70,7 +74,9 @@ Usage: $0 [-x xsize] [-y ysize] [-l] [-p precision] [-d deltamin] [-T srs] [-S s
                         rad       Radius for the circle drawn for point shapes.  Only circles are currently used.
                         nodraw    Set to "true" or "1" to inhibit rendering of the shapefile; useful for influencing
                                   the scale when rendering other files, as when creating layers separately.
-			aspoints  Set tor "true" or "yes" or "1" to cause polygons to be drawn as points at their center.
+			ptype     Set the drawing for point shapes as one of "circle", "5star", "4star", "square",
+		 	          or "diamond".  Can be used on a polygon-type shapefile to draw points instead of
+				  polygons at the vertex centroid of the polygon.
                         colorby   An attribute name followed by a list of pcre regexes and color specs; the fill for
                                   each shape is set to the color associated with the first matching regex.
                                   E.g.: "colorby="RANGE;m/0 to 50/#cfef7f;m/50 to 100/#a1f574;m/100 to 200/#95fbcb"
@@ -136,7 +142,7 @@ foreach (@ARGV) {
 		next ;	#- so shortcircuit everything below.
 	}
 
-	printf STDERR "#%d. Analyzing '%s' ", $fct-1, $bn ;
+	printf STDERR "#%d. Analyzing '%s' ", $fct-1, $bn  if (defined ($opt_v) ) ;
 
 	foreach my $o (@opt) {
 		#- parse out all the inputspec options
@@ -156,8 +162,8 @@ foreach (@ARGV) {
 				$radius{$f} = $v ;
 			} elsif (	$k eq "nodraw"	) {
 				$nosho{$f} = 1 if ($v =~ m/^[yt1]/i) ;
-			} elsif (	$k eq "aspoints") {
-				$aspoints{$f} = 1 if ($v =~ m/^[yt1]/i) ;
+			} elsif (	$k eq "ptype") {
+				$ptype{$f} = $v ;
 			} elsif (	$k = "colorby"	) {
 				my @clist = split (/;/, $v) ;
 				$clrfld{$f} = shift @clist ;
@@ -196,7 +202,7 @@ foreach (@ARGV) {
 			push @{$grpsof{$f}{$data{$grpby{$f}}}}, $rx ;
 			$shpct++ ;
 			my $shp = $shpf[$#flist]->get_shp_record($rx);
-			if (defined ($aspoints{$f}) ) {
+			if (defined ($ptype{$f}) ) {
 				#- plotting just the center point of an area or a line
 				my $pt = $shp->vertex_centroid();
 				my $pr_pt = $srs{$f}->transform($t_srs, [$pt->X, $pt->Y]);
@@ -244,12 +250,12 @@ foreach (@ARGV) {
 		$y_max = $y1 if ($y1 > $y_max) ;
 	}
 
-	print STDERR $shpct, " shapes\n" ;
+	print STDERR $shpct, " shapes\n"  if (defined ($opt_v) ) ;
 
 }
 exit 0 if (defined ($opt_l) ) ; #- that's all the user wanted.
 
-print STDERR "\n" ;
+print STDERR "\n"  if (defined ($opt_v) ) ;
 
 
 #-----------------------------------------------------------------------
@@ -272,6 +278,17 @@ my %default_styles =	(	'stroke-width'		=> '1'
 			,	'fill'			=> 'none'
 			) ;
 
+#- built-in point shapes (native svg circle by default)
+my %builtins =	(	"square"	=>	[ [0.70711,0.70711], [0.70711,-0.70711], [-0.70711,-0.70711], [-0.70711,0.70711] ]
+		,	"diamond"	=>	[ [0,1], [1,0], [0,-1], [-1,0] ]
+		,	"star4"		=>	[ [0,1], [0.24,0.24], [1,0], [0.24,-0.24], [0,-1], [-0.24,-0.24], [-1,0], [-0.24,0.24] ]
+		,	"star5"		=>	[ [0.224514, -0.309017], [0.951057, -0.309017],
+						  [0.363271, 0.118034], [0.587785, 0.809017],
+						  [0.000000, 0.381966], [-0.587785, 0.809017],
+						  [-0.363271, 0.118034], [-0.951057, -0.309017],
+						  [-0.224514, -0.309017], [-0.000000, -1.000000]
+						]
+		) ;
 
 #- Definitely gonna need one of these...
 my $svg= SVG->new(width=>$opt_x,height=>$opt_y);
@@ -285,6 +302,7 @@ my $grpct = 1 ;
 
 #- The fun begins... go through each shapefile, rendering the shapes selected in the peek-head loop above.
 
+$fct = 1 ;
 foreach my $fx (0 .. $#shpf) {
 
 
@@ -305,11 +323,11 @@ foreach my $fx (0 .. $#shpf) {
 	}
 	undef ($lstyle{fill}) if (defined ($clrfld{$f}) ) ; # scotch that if using per-shape colors
 
-	printf STDERR "Projecting '%s'", $f ;
+	printf STDERR "%d: Projecting '%s'", $fct++, $f  if (defined ($opt_v) ) ;
 
 	#- for each group of shapes...
 	foreach my $grpkey (keys %{$grpsof{$f}} ) {
-		printf STDERR "   %s", $grpkey ;
+		printf STDERR "   %s", $grpkey  if (defined ($opt_v) ) ;
 
 		my $g=$fgroup->group( id => &GrpName(\$grpct, $grpkey), style => \%lstyle) ;	#- new SVG group
 
@@ -331,23 +349,25 @@ foreach my $fx (0 .. $#shpf) {
 
 			next if ($type == 0) ;							#- a null type?  yeah, that's useful!
 
-			if (defined ($aspoints{$f}) || $type == 1 || $type == 8 || $type == 11 || $type == 18 || $type == 21 || $type == 28) {
+			#- if-then-else hell follows...
+
+			if (defined ($ptype{$f}) || $type == 1 || $type == 8 || $type == 11 || $type == 18 || $type == 21 || $type == 28) {
 				#- a Point type.  We'll use a circle that's big enough to see, instead.
 				#- Note: need a way to specify different sorts of shapes to render for a point object.
 
 				my @points ;
-				if (defined ($aspoints{$f}) ) {
-					$points[0] = $shp->vertex_centroid();
+				if (defined ($ptype{$f}) ) {
+					$points[0] = $shp->vertex_centroid();			#- plotting 1 point a centroid of a polygon
 				} else {
 					@points = $shp->points() ;
 				}
-				foreach my $pt (@points) {
+				foreach my $pt (@points) {					#- is there more than one?  doesn't matter...
 					#- iterating through the points in the shape
 
 					my $pr_pt = new Geo::Point ;				#- for translating
 
 					#- do the translation from source srs to target srs
-					if (defined ($srs{$f}) && defined ($opt_T) ) {
+					if (defined ($srs{$f}) && defined ($opt_T) ) {		#- this should always be true, btw.
 						$pr_pt = $srs{$f}->transform($t_srs, [$pt->X, $pt->Y]);
 					} else {
 						$pr_pt = [$pt->X, $pt->Y] ;			#- null translation (ever gonna happen?)
@@ -356,22 +376,42 @@ foreach my $fx (0 .. $#shpf) {
 					#- scale and translate
 					my $nx = sprintf "%0.*f", $prec, (($pr_pt->[0]-$x_min)*$scale) ;
 					my $ny = sprintf "%0.*f", $prec, ($opt_y - (($pr_pt->[1]-$y_min)*$scale)) ;
+
 					#- render with or without per-shape color
-					if (defined ($clrfld{$f} && $clrfld{$f} ne "") ) {
-						$g->circle(	cx=>$nx
-							,	cy=>$ny
-							,	r=>(defined($radius{$f})?$radius{$f}:2)
-							,	id=>'circ'.$shpct++
-							,	style=> \%shtyle
-							) ;
+					if (!defined ($ptype{$f}) || $ptype{$f} eq "circle") {
+						if (defined ($clrfld{$f} && $clrfld{$f} ne "") ) {
+							$g->circle(	cx=>$nx
+								,	cy=>$ny
+								,	r=>(defined($radius{$f})?$radius{$f}:2)
+								,	id=>'pt'.$shpct++
+								,	style=> \%shtyle
+								) ;
+						} else {
+							$g->circle(	cx=>$nx
+								,	cy=>$ny
+								,	r=>(defined($radius{$f})?$radius{$f}:2)
+								,	id=>'pt'.$shpct++
+								) ;
+						}
+						undef $pr_pt ;
 					} else {
-						$g->circle(	cx=>$nx
-							,	cy=>$ny
-							,	r=>(defined($radius{$f})?$radius{$f}:2)
-							,	id=>'circ'.$shpct++
-							) ;
+						#- built-in shape -- get points for a polygon of some sort
+						my $pstr = &BuiltinShape ($ptype{$f}, $nx, $ny, (defined($radius{$f})?$radius{$f}:2) ) ;
+						#- render with or without per-shape color
+						if (defined ($clrfld{$f}) && $clrfld{$f} ne "") {
+							$g->polygon (	points=>$pstr
+								,	id=>"pt$shpct"
+								,	style=> \%shtyle
+								) ;
+						} else {
+							$g->polygon (	points=>$pstr
+								,	id=>"pt$shpct"
+								) ;
+						}
+						$shpct++ ;
+							
+
 					}
-					undef $pr_pt ;
 				}
 			} else {
 				#- this is a line or a line or polygon
@@ -435,7 +475,7 @@ foreach my $fx (0 .. $#shpf) {
 			}
 		}
 	}
-	print STDERR "\n" ;
+	print STDERR "\n"  if (defined ($opt_v) ) ;
 }
 
 #- render SVG to stdout
@@ -471,5 +511,19 @@ sub GrpName {	my ($ctref, $title) = @_ ;
 	$title = "g" . $$ctref . "-" . substr (&AlphaNum ($title), 0, 32) ;
 	$$ctref++ ;
 	return $title ;
+}
+#-------------------------------------------------------------------------------
+
+sub BuiltinShape {	my ($type, $x, $y, $radius) = @_ ;
+
+	$type = 'square' if (!defined ($builtins{$type}) ) ;	#- silently supply a valid shape if needs be
+
+	my $a = $builtins{$type} ;
+	my $pstr = " " ;
+	foreach my $aref (@$a) {
+		$pstr .= sprintf " %0.3f,%0.3f ", ($aref->[0] * $radius)+$x, ($aref->[1] * $radius)+$y ;
+	}
+
+	return $pstr ;
 }
 #-------------------------------------------------------------------------------

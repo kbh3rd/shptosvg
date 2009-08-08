@@ -1,0 +1,33 @@
+Last updated $Date: 2009/08/08 01:28:36 $
+
+Wish to do list:
+
+* Include value from some data field in the SVG objects, either in the
+  object ID or in another suitable field.
+
+* Specify a background color.
+
+* Take a name from a field to print in the output.  Getting labels to
+  print in a legible manner that doesn't interfere with the other items
+  on a map is very problematical.  But if they're already in the image
+  as an output option, it's easier to move them around in Inkscape than
+  if you had to type them in by hand to boot.
+
+* Trace the outline of a group of shapes.  This one won't be trivial!
+
+* Support some way of importing shapes for point shapes from external
+  SVG files
+
+* Scale and crop to a specific layer instead of the biggest, with an
+  optional margin around the target layer.
+
+* Support an arbitrary bounding box specified by the user.  In target
+  units, somehow.
+
+* Support layers defined in text-delimited files (CSV, e.g.)
+
+* Perhaps some-sort of config/description file to drive the program
+  as an optional alternative to the burgeoning command-line.
+
+* A GUI implemented in Perl-TK, some day?
+
