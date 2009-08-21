@@ -1,32 +1,39 @@
-Last updated $Date: 2009/08/08 01:26:02 $
+Last updated $Date: 2009/08/21 00:23:21 $
 
 Migrating items from TODO.txt ...
 
+    * Distributed as a single Perl file rather than as a suite of
+      modules & libraries.  It does require some external perl modules,
+      one of which has a dependency on library.  The desire is to limit
+      *this* distribution to a single utility program, though.
 
     * Process multiple shapefiles in a single invocation, layering
       the output into a single projected SVG file.
 
-    * Accept per-source SRS specs on the command line, allowing multiple
-      input files to have disparate coordinate systems.
+    * Accept per-source spatial reference system (SRS, i.e., projection)
+      specs on the command line, allowing multiple input files to have
+      disparate coordinate systems.
 
     * Project the results to any specified SRS.
 
     * Support specification of color and other rendering options,
-      per source
+      per source file.
 
     * Optionally select subset of shapes by regex on arbitrary data
       fields.
 
-    * Support coloring of shapes by value of arbitrary data field.
+    * Support coloring of shapes by value of arbitrary data field, based
+      on explicit value, groups of unique values, or range of numeric
+      values.
 
     * Allow specification of a shapefile to use in scaling but not in
-      rendering.  That would support independent production of layers
+      rendering.  That could support independent production of layers
       to be later combined in an SVG editor.
 
     * Option for polygon and polylines to be rendered as a point at
       their center
 
     * Point shapes (or centers of polygons) may be plotted as one of a
-      variety of built-in shapes: circle, square, diamond, 4-pointed
-      star, or 5-pointed star.
+      variety of built-in shapes: circle, square, diamond, 4-pointed star,
+      or 5-pointed star.
 

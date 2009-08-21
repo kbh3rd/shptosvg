@@ -1,11 +1,11 @@
-Last updated $Date: 2009/08/08 01:19:10 $
+Last updated $Date: 2009/08/21 00:09:20 $
 
 "shptosvg.pl" is a Perl program (script, whatever) that renders one or
 more ESRI Shapefiles in an SVG (Scalable Vector Graphics) file.  The SVG
 file created can be subsequently edited with an SVG editor like Inkscape
 to ammend the results of the rendering and to add finishing touches.
 
-Three external Perl modules (available from CPAN) are required by this
+These external Perl modules (available from CPAN) are required by this
 program:
 
     Geo::ShapeFile
@@ -17,6 +17,9 @@ program:
     Geo::Proj4
         http://search.cpan.org/~markov/Geo-Proj4-1.01/lib/Geo/Proj4.pod
 
+The Geo::Proj4 module requires that the Proj4 library be pre-installed.
+That can be downloaded from http://trac.osgeo.org/proj
+
 No other external dependencies should exit.
 
 ------------------------------------------------------------------------
@@ -25,7 +28,10 @@ Manifest:
 
     shptosvg.pl:   The perl program
     mkogallala.sh: A shellscript containing an example use of the program
-    README.txt:    You're reading it now.
+    README:        You're reading it now.
+    FEATURES:      A list of features in the program
+    TODO:          A list of features that may be coming soon, or which
+                   may just be pie in the sky.
 
 ------------------------------------------------------------------------
 
@@ -100,6 +106,22 @@ Usage: $0 [-x xsize] [-y ysize] [-l] [-p precision] [-d deltamin] [-T srs] [-S s
                   100/#a1f574;m/100 to 200/#95fbcb" In this example,
                   the RANGE field contains strings like "0 to 50".
                   Full-blown regexes are possible, though.
+
+        same      Name of an attribute to set the fill color of the
+                  shapes by; all shapes having the same value get the
+                  same unique color.  The color sequence is currently
+                  hard-coded.  The attribute can be numeric or not.
+                  A key legend is created out of view in the SVG image;
+                  it can be edited as desired and moved into a suitable
+                  position with an SVG editor in post-processing.
+
+        range     Atributename;color1;color2[;log]
+                  The range of values in the named attribute are
+                  colored with continuous range of colors from color1
+                  for the lowest value to color2 for the highest value.
+                  The attribute is treated as numeric.  If the optional
+                  log option is given, a logarighmic scale is used,
+                  linear otherwise.
 
 Example inputspec: 
 Rivers.shp,grep="NAME~(Red)|(Brazos)|(Pecos)",style="stroke:#1821DE;stroke-width:1",srs="+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs" 

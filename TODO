@@ -1,9 +1,17 @@
-Last updated $Date: 2009/08/08 01:28:36 $
+Last updated $Date: 2009/08/21 00:20:09 $
 
 Wish to do list:
 
+* Automtatically-generated legend for range-colored shapes, as is already
+  done with same-colored shapes.
+
 * Include value from some data field in the SVG objects, either in the
-  object ID or in another suitable field.
+  object ID or in another suitable field.  Possibly useful for automated
+  post-processing.
+
+* Replace use of SVG module with direct creation of the image file.
+
+* Improve discovery of the projected bounding box.
 
 * Specify a background color.
 
@@ -11,9 +19,10 @@ Wish to do list:
   print in a legible manner that doesn't interfere with the other items
   on a map is very problematical.  But if they're already in the image
   as an output option, it's easier to move them around in Inkscape than
-  if you had to type them in by hand to boot.
+  if you also had to type them in by hand first.
 
-* Trace the outline of a group of shapes.  This one won't be trivial!
+* Trace the outline of a group of shapes.  This one won't be too trivial;
+  need a good algorithm or polygon library.
 
 * Support some way of importing shapes for point shapes from external
   SVG files
@@ -31,3 +40,4 @@ Wish to do list:
 
 * A GUI implemented in Perl-TK, some day?
 
+* Automatically determine Source SRS from either .prj or .wkt files

@@ -1,9 +1,9 @@
 #!/usr/bin/perl
 
-my $LAST_UPDATE = '$Date: 2009/08/08 01:14:01 $' ;
+my $LAST_UPDATE = '$Date: 2009/08/20 23:36:27 $' ;
 
 #------------------------------------------------------------------------
-# Copyright (c) 2009, Ken Hardy
+# Copyright (c) 2009, K. Hardy
 # All rights reserved.
 # 
 # Redistribution and use in source and binary forms, with or without
@@ -42,7 +42,7 @@ my $default_height = 72 * 10 ;
 #-- basic command line parameter processing
 
 require 'getopt.pl' ;
-&Getopt ('xyTpd') ;
+&Getopt ('xySTpd') ;
 sub Usage { my ($msg) = @_ ;
         print STDERR $msg, "\n" if ($msg ne "") ;
         print STDERR <<_EOU;
@@ -95,6 +95,9 @@ _EOU
 #  Parse input files & handling
 #-----------------------------------------------------------------------
 
+my $ReallyBigNum = 0x7fffffff ;
+my $ReallyLilNum = -9999999999 ;
+
 #- default coord systems ... not very universal
 $main::opt_S = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs" unless (defined ($opt_S) ) ;
 $main::opt_T = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs" unless (defined ($opt_T) ) ;
@@ -116,6 +119,7 @@ my @flist ;	# array of file names
 
 
 my ( %srs, %grpby, %grep, %pcre, %style, %nosho, %grpsof, %cmatch ); # commandline parameters, parsed, per inputfile
+my ( %rngfld, %rngmin, %rngmax, %rngclr1, $rngclr2, %rngdel, %rnglog ) ; # cmdline parms for range colors, per inputfile
 
 my $fct = 1 ;	# file counter
 foreach (@ARGV) {
@@ -162,8 +166,20 @@ foreach (@ARGV) {
 				$radius{$f} = $v ;
 			} elsif (	$k eq "nodraw"	) {
 				$nosho{$f} = 1 if ($v =~ m/^[yt1]/i) ;
-			} elsif (	$k eq "ptype") {
+			} elsif (	$k eq "ptype"	) {
 				$ptype{$f} = $v ;
+			} elsif (	$k eq "same"	) {
+				$sameclr{$f} = $v ;
+			} elsif (	$k eq "range"	) {
+				#- range=FLDNAME;#begin;#end;(log)
+				my ($fld, $min, $max, $log) = split (/;/, $v) ;
+				$rngfld{$f} = $fld ;
+				$rngclr1{$f} = &RGBof ($min) ;
+				$rngclr2{$f} = &RGBof ($max) ;
+				$rngmin{$f} = $ReallyBigNum ;
+				$rngmax{$f} = $ReallyLilNum ;
+				$rngdel{$f} = $ReallyBigNum ;
+				$rnglog{$f} =  ( ($log =~ m/^log/i) ? 1 : 0) ;
 			} elsif (	$k = "colorby"	) {
 				my @clist = split (/;/, $v) ;
 				$clrfld{$f} = shift @clist ;
@@ -199,6 +215,10 @@ foreach (@ARGV) {
 			if (defined ($pcre{$f}) ) {
 				next unless ($data{$grep{$f}} =~ m/$pcre{$f}/i) ;
 			}
+			if (defined ($rngfld{$f}) ) {
+				$rngmax{$f} = $data{$rngfld{$f}} if ($data{$rngfld{$f}} > $rngmax{$f}) ;
+				$rngmin{$f} = $data{$rngfld{$f}} if ($data{$rngfld{$f}} < $rngmin{$f}) ;
+			}
 			push @{$grpsof{$f}{$data{$grpby{$f}}}}, $rx ;
 			$shpct++ ;
 			my $shp = $shpf[$#flist]->get_shp_record($rx);
@@ -222,6 +242,7 @@ foreach (@ARGV) {
 					$y_max = $pr_pt->[1] if ($pr_pt->[1] > $y_max) ;
 				}
 			}
+
 		}
 	} else {
 		#- one group of all shapes, to make rendering code a single case
@@ -248,6 +269,16 @@ foreach (@ARGV) {
 		$y_min = $y0 if ($y0 < $y_min) ;
 		$x_max = $x1 if ($x1 > $x_max) ;
 		$y_max = $y1 if ($y1 > $y_max) ;
+		#
+		# Oy, color ranges weren't discovered above either
+		if (defined ($rngfld{$f}) ) {
+			my $rmax = $shpf[$#flist]->records() ;
+			foreach my $rx (1 .. $rmax) {
+				my %data = $shpf[$#flist]->get_dbf_record($rx) ;
+				$rngmax{$f} = $data{$rngfld{$f}} if ($data{$rngfld{$f}} > $rngmax{$f}) ;
+				$rngmin{$f} = $data{$rngfld{$f}} if ($data{$rngfld{$f}} < $rngmin{$f}) ;
+			}
+		}
 	}
 
 	print STDERR $shpct, " shapes\n"  if (defined ($opt_v) ) ;
@@ -266,6 +297,8 @@ print STDERR "\n"  if (defined ($opt_v) ) ;
 my $scale = $opt_x / ($x_max - $x_min)  ;
 my $yscale = $opt_y / ($y_max - $y_min)  ;
 $scale = $yscale if ($yscale < $scale) ;
+
+#----- some data &c. needed down the line...
 
 #- default line styles
 my %default_styles =	(	'stroke-width'		=> '1'
@@ -289,6 +322,14 @@ my %builtins =	(	"square"	=>	[ [0.70711,0.70711], [0.70711,-0.70711], [-0.70711,
 						  [-0.224514, -0.309017], [-0.000000, -1.000000]
 						]
 		) ;
+
+#- for building unique colors
+
+my %red = ( value => 0x20, incr => 0x7a ) ;
+my %grn = ( value => 0x20, incr => 0x37 ) ;
+my %blu = ( value => 0x20, incr => 0x07 ) ;
+my %colorvalues ;
+
 
 #- Definitely gonna need one of these...
 my $svg= SVG->new(width=>$opt_x,height=>$opt_y);
@@ -321,7 +362,7 @@ foreach my $fx (0 .. $#shpf) {
 			$lstyle{$k} = $v ;
 		}
 	}
-	undef ($lstyle{fill}) if (defined ($clrfld{$f}) ) ; # scotch that if using per-shape colors
+	undef ($lstyle{fill}) if (defined ($clrfld{$f}) || defined ($sameclr{$f}) || defined ($rngfld{$f}) ) ; # scotch that if using per-shape colors
 
 	printf STDERR "%d: Projecting '%s'", $fct++, $f  if (defined ($opt_v) ) ;
 
@@ -342,6 +383,10 @@ foreach my $fx (0 .. $#shpf) {
 						$shtyle{fill} = $cmatch{$f}{$pcre} ;		#- and set the corresponding fill color
 					}
 				}
+			} elsif (defined ($sameclr{$f}) ) {
+				$shtyle{fill} = &UniqueColor ($f, $dbf{$sameclr{$f}}) ;
+			} elsif (defined ($rngfld{$f}) ) {
+				$shtyle{fill} = &RangeColor ($f, $dbf{$rngfld{$f}}, $rnglog{$f}) ;
 			} else {
 				undef %shtyle ;							#- nah, false alarm, no grepping here
 			}
@@ -379,7 +424,7 @@ foreach my $fx (0 .. $#shpf) {
 
 					#- render with or without per-shape color
 					if (!defined ($ptype{$f}) || $ptype{$f} eq "circle") {
-						if (defined ($clrfld{$f} && $clrfld{$f} ne "") ) {
+						if ( (defined ($clrfld{$f} && $clrfld{$f} ne "") )  || defined ($sameclr{$f}) || defined ($rngfld{$f}) ) {
 							$g->circle(	cx=>$nx
 								,	cy=>$ny
 								,	r=>(defined($radius{$f})?$radius{$f}:2)
@@ -398,7 +443,7 @@ foreach my $fx (0 .. $#shpf) {
 						#- built-in shape -- get points for a polygon of some sort
 						my $pstr = &BuiltinShape ($ptype{$f}, $nx, $ny, (defined($radius{$f})?$radius{$f}:2) ) ;
 						#- render with or without per-shape color
-						if (defined ($clrfld{$f}) && $clrfld{$f} ne "") {
+						if ( (defined ($clrfld{$f} && $clrfld{$f} ne "") )  || defined ($sameclr{$f}) || defined ($rngfld{$f}) ) {
 							$g->polygon (	points=>$pstr
 								,	id=>"pt$shpct"
 								,	style=> \%shtyle
@@ -447,7 +492,7 @@ foreach my $fx (0 .. $#shpf) {
 				
 					#- polygon or line, colorby or not
 					if ($type == 5 || $type == 15 || type == 25) {
-						if (defined ($clrfld{$f}) && $clrfld{$f} ne "") {
+						if ( (defined ($clrfld{$f}) && $clrfld{$f} ne "") || defined ($sameclr{$f}) || defined ($rngfld{$f}) ) {
 							$g->polygon (	points=>$pstr
 								,	id=>"pgon$shpct"
 								,	style=> \%shtyle
@@ -459,7 +504,7 @@ foreach my $fx (0 .. $#shpf) {
 						}
 						$shpct++ ;
 					} else {
-						if (defined ($clrfld{$f}) && $clrfld{$f} ne "") {
+						if ( (defined ($clrfld{$f}) && $clrfld{$f} ne "") || defined ($sameclr{$f}) || defined ($rngfld{$f}) ) {
 							$g->polyline (	points=>$pstr
 								,	id=>"line$shpct"
 								,	style=> \%shtyle
@@ -478,12 +523,51 @@ foreach my $fx (0 .. $#shpf) {
 	print STDERR "\n"  if (defined ($opt_v) ) ;
 }
 
+&Legend ;
+
 #- render SVG to stdout
 print $svg->xmlify ;
 
 
 
 exit 0 ;	#- C'est finis.  Et tres magnifique.
+#-------------------------------------------------------------------------------
+
+
+sub Legend {
+	#- working from global hash var
+
+	my $lgdct = 0 ;
+	my $prevfile = "" ;
+	foreach my $key (sort keys %colorvalue) {
+
+		my ($file, $value) = split(/::/, $key) ;
+
+		if ($file ne $prevfile) {
+			$lgdct++ ; # dbl space
+			$svg->text	(	id	=>	'lgd-'.$file
+					,	x	=> 	$opt_x + 12
+					,	y	=>	$lgdct++ * 14
+					,	style	=>	"font-weight:bold; font-size:10; fill:black; stroke:none; stroke-width:0.25"
+					,	-cdata	=>	$file
+					) ;
+			$prevfile = $file ;
+		}
+
+		$svg->polygon	(	points=>&BuiltinShape("square", $opt_x + 12, $lgdct * 14, 10)
+				,	id=>"lgdbox-".$key
+				,	style=> sprintf "fill:%s; stroke:black; stroke-width:0.2", $colorvalue{$key}
+				) ;
+
+		$svg->text	(	id	=>	'lgdtxt-'.$key
+				,	x	=>	$opt_x + 24
+				,	y	=>	($lgdct++ * 14)+5
+				,	style	=>	"font-weight: normal; font-size:10; fill:".$colorvalue{$key}.";stroke:black;stroke-width:0.2"
+				,	-cdata	=>	$value
+				) ;
+	}
+	return ;
+}
 
 ################################################################################
 #- utility functions
@@ -525,5 +609,81 @@ sub BuiltinShape {	my ($type, $x, $y, $radius) = @_ ;
 	}
 
 	return $pstr ;
+}
+#-------------------------------------------------------------------------------
+
+sub UniqueColor {	my ($file, $value) = @_ ;
+
+	my $colorkey = $file."::".$value ;
+
+	if (!defined ($colorvalue{$colorkey}) ) {
+		$colorvalue{$colorkey} = sprintf "#%0.2x%0.2x%0.2x", $red{value}, $grn{value}, $blu{value} ;
+		$red{value} = ($red{value} + $red{incr}) % 256 ;
+		$grn{value} = ($grn{value} + $grn{incr}) % 256 ;
+		$blu{value} = ($blu{value} + $blu{incr}) % 256 ;
+	}
+	return $colorvalue{$colorkey} ;
+}
+#-------------------------------------------------------------------------------
+
+sub RGBof {	my ($hexclr) = @_ ;	# color as hex rrggbb w/ or /wo the leading #
+
+	if ($hexclr =~ m/^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/) {
+		my ($r, $g, $b) ;
+		eval sprintf '$r = 0x%s ; $g = 0x%s ; $b = 0x%s ;', $1, $2, $3 ;	#- sorry; pack/unpack are voodoo
+
+		return { r=>$r, g=>$g, b=>$b } ;
+	}
+
+	return ;
+}
+#-------------------------------------------------------------------------------
+
+#sub RangeColor {	my ($f, $val) = @_ ;
+#
+#	my $range = $rngmax{$f} - $rngmin{$f} ;
+#	if ($range == 0) {
+#		return sprintf "#%0.2x%0.2x%0.2x", $rngclr1{$f}}{r},$rngclr1{$f}}{g},$rngclr1{$f}}{b} ;
+#	}
+#	my $pct = ($val - $rngmin{$f}) / $range ;
+#
+#	my $r = ${$rngclr1{$f}}{r} + $pct * (${$rngclr2{$f}}{r} - ${$rngclr1{$f}}{r}) ;
+#	my $g = ${$rngclr1{$f}}{g} + $pct * (${$rngclr2{$f}}{g} - ${$rngclr1{$f}}{g}) ;
+#	my $b = ${$rngclr1{$f}}{b} + $pct * (${$rngclr2{$f}}{b} - ${$rngclr1{$f}}{b}) ;
+#
+#	return sprintf "#%0.2x%0.2x%0.2x", $r,$g,$b ;
+#}
+##-------------------------------------------------------------------------------
+
+sub RangeColor {	my ($f, $val, $ln) = @_ ;
+
+	my $pct ;
+
+	if ($ln) {
+		if ($rngdel{$f} == $ReallyBigNum) { 
+			$rngdel{$f} = 0 - $rngmin{$f} + 1 ;
+			$rngmin{$f} =  0 ;
+			$rngmax{$f} = log($rngmax{$f} + $rngdel{$f}) ;
+		}
+
+		if ($rngmax{$f} == 0) {
+			return sprintf "#%0.2x%0.2x%0.2x", $rngclr1{r},$rngclr1{g},$rngclr1{b} ;
+		}
+		$pct = log($rngdel{$f}+$val) / $rngmax{$f} ;
+	} else {
+		my $range = $rngmax{$f} - $rngmin{$f} ;
+		if ($range == 0) {
+			return sprintf "#%0.2x%0.2x%0.2x", $rngclr1{r},$rngclr1{g},$rngclr1{b} ;
+		}
+		$pct = ($val - $rngmin{$f}) / $range ;
+	}
+
+	my $r = ${$rngclr1{$f}}{r} + $pct * (${$rngclr2{$f}}{r} - ${$rngclr1{$f}}{r}) ;
+	my $g = ${$rngclr1{$f}}{g} + $pct * (${$rngclr2{$f}}{g} - ${$rngclr1{$f}}{g}) ;
+	my $b = ${$rngclr1{$f}}{b} + $pct * (${$rngclr2{$f}}{b} - ${$rngclr1{$f}}{b}) ;
+
+	return sprintf "#%0.2x%0.2x%0.2x", $r,$g,$b ;
+
+	return ;
 }
 #-------------------------------------------------------------------------------
