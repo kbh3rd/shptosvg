@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-my $LAST_UPDATE = '$Date: 2009/08/20 23:36:27 $' ;
+my $LAST_UPDATE = '$Date: 2011/08/15 02:59:47 $' ;
 
 #------------------------------------------------------------------------
 # Copyright (c) 2009, K. Hardy
@@ -34,6 +34,8 @@ use Geo::ShapeFile ;
 use SVG ;
 use Geo::Point ;
 use Geo::Proj4 ;
+use Math::Polygon ;
+use Math::Polygon::Clip ;
 
 my $default_width = 72 * 8 ;
 my $default_height = 72 * 10 ;
@@ -42,16 +44,17 @@ my $default_height = 72 * 10 ;
 #-- basic command line parameter processing
 
 require 'getopt.pl' ;
-&Getopt ('xySTpd') ;
+&Getopt ('xySTpdC') ;
 sub Usage { my ($msg) = @_ ;
         print STDERR $msg, "\n" if ($msg ne "") ;
         print STDERR <<_EOU;
-Usage: $0 [-x xsize] [-y ysize] [-l] [-p precision] [-d deltamin] [-T srs] [-S srs] inputspec [inputspec ...]\n" ;
+Usage: $0 [-x xsize] [-y ysize] [-l] [-p precision] [-d deltamin] [-T srs] [-S srs] [-C xmin,ymin:xmax,ymax] inputspec [inputspec ...]\n" ;
         -l lists the names of the attribute fields in the shapefile and then exits.
         -x xsize is image width (in points?); defaults to 576
         -y ysize is image height (in points?): defaults to 720
         -T srs is for Target projection spatial reference system in Proj4 format; defaults to rectilinear lat/lon 
         -S srs is the default Source spatial reference system in Proj4 format; defaults to rectilinear lat/lon 
+	-C xmin,ymin:xmax,ymax crops the results to the bounding box defined by opposing corners in the target SRS
         -p precision is the number of decimal points used in the SVG for position coordinates; defaults to 1
         -d deltamin is the minimum change in either x or y from the previously plotted point in a line or polygon
            for the next one to be plotted.  This reduces file size by omitting points that are very, very close to
@@ -117,6 +120,39 @@ my ($x_min, $y_min, $x_max, $y_max) = (999999999, 999999999, -999999999, -999999
 my @shpf ;	# array of shapefile objects
 my @flist ;	# array of file names
 
+my @Clip ;
+if (defined ($opt_C) ) {
+	@Clip = $opt_C =~ m/(-?\d+\.?\d*),(-?\d+\.?\d*):(-?\d+\.?\d*),(-?\d+\.?\d*)/ ; #Clip rectangle corners in target srs
+	if ($#Clip != 3) {
+		undef $opt_C ;
+	} else {
+
+		if ($Clip[0] > $Clip[2]) {
+			$Clip[4] = $Clip[0] ;
+			$Clip[0] = $Clip[2] ;
+			$Clip[2] = $Clip[4] ;
+		}
+		if ($Clip[1] > $Clip[3]) {
+			$Clip[4] = $Clip[1] ;
+			$Clip[1] = $Clip[3] ;
+			$Clip[3] = $Clip[4] ;
+		}
+		$#Clip = 3 ;
+
+		$x_min = $Clip[0] ;
+		$y_min = $Clip[1] ;
+		$x_max = $Clip[2] ;
+		$y_max = $Clip[3] ;
+
+		#- adjust clipping a little larger than the page so artifact lines fall off the page
+		my $xpct = int ( ( ($Clip[2] - $Clip[0]) * 0.01) + 0.5) ;
+		my $ypct = int ( ( ($Clip[3] - $Clip[1]) * 0.01) + 0.5) ;
+		$Clip[0] -= $xpct ;
+		$Clip[1] -= $ypct ;
+		$Clip[2] += $xpct ;
+		$Clip[3] += $ypct ;
+	}
+}
 
 my ( %srs, %grpby, %grep, %pcre, %style, %nosho, %grpsof, %cmatch ); # commandline parameters, parsed, per inputfile
 my ( %rngfld, %rngmin, %rngmax, %rngclr1, $rngclr2, %rngdel, %rnglog ) ; # cmdline parms for range colors, per inputfile
@@ -222,24 +258,27 @@ foreach (@ARGV) {
 			push @{$grpsof{$f}{$data{$grpby{$f}}}}, $rx ;
 			$shpct++ ;
 			my $shp = $shpf[$#flist]->get_shp_record($rx);
-			if (defined ($ptype{$f}) ) {
-				#- plotting just the center point of an area or a line
-				my $pt = $shp->vertex_centroid();
-				my $pr_pt = $srs{$f}->transform($t_srs, [$pt->X, $pt->Y]);
-				$x_min = $pr_pt->[0] if ($pr_pt->[0] < $x_min) ;
-				$y_min = $pr_pt->[1] if ($pr_pt->[1] < $y_min) ;
-				$x_max = $pr_pt->[0] if ($pr_pt->[0] > $x_max) ;
-				$y_max = $pr_pt->[1] if ($pr_pt->[1] > $y_max) ;
-			} else {
-				foreach my $pt ($shp->points() ) {
-					#- searching for the shapes' projected bounding box.
-					#- problems with this approach in comments a little
-					#- farther down the page.
+
+			if (!defined ($opt_C) ) {
+				if (defined ($ptype{$f}) ) {
+					#- plotting just the center point of an area or a line
+					my $pt = $shp->vertex_centroid();
 					my $pr_pt = $srs{$f}->transform($t_srs, [$pt->X, $pt->Y]);
 					$x_min = $pr_pt->[0] if ($pr_pt->[0] < $x_min) ;
 					$y_min = $pr_pt->[1] if ($pr_pt->[1] < $y_min) ;
 					$x_max = $pr_pt->[0] if ($pr_pt->[0] > $x_max) ;
 					$y_max = $pr_pt->[1] if ($pr_pt->[1] > $y_max) ;
+				} else {
+					foreach my $pt ($shp->points() ) {
+						#- searching for the shapes' projected bounding box.
+						#- problems with this approach in comments a little
+						#- farther down the page.
+						my $pr_pt = $srs{$f}->transform($t_srs, [$pt->X, $pt->Y]);
+						$x_min = $pr_pt->[0] if ($pr_pt->[0] < $x_min) ;
+						$y_min = $pr_pt->[1] if ($pr_pt->[1] < $y_min) ;
+						$x_max = $pr_pt->[0] if ($pr_pt->[0] > $x_max) ;
+						$y_max = $pr_pt->[1] if ($pr_pt->[1] > $y_max) ;
+					}
 				}
 			}
 
@@ -254,21 +293,23 @@ foreach (@ARGV) {
 	}
 
 	if (!defined ($grpby{$f}) ) {
-		#-
-		#- Bounds weren't discovered above, do it here based on projection of the
-		#- shapefiles' bounds.
-		#- NOTE: This is imperfect because of the projecting going on; the sides might
-		#-       bow out, e.g.  The "right" way would be /very/ slow, and this is "okay"-ish.
-		#-
-		my ($x0, $y0, $x1, $y1) = $shpf[$#flist]->bounds() ;
-		my $pr_point = $srs{$f}->transform($t_srs, [$x0, $y0]);
-		  $x0 = $pr_point->[0] ; $y0 = $pr_point->[1] ;
-		my $pr_point = $srs{$f}->transform($t_srs, [$x1, $y1]);
-		  $x1 = $pr_point->[0] ; $y1 = $pr_point->[1] ;
-		$x_min = $x0 if ($x0 < $x_min) ;
-		$y_min = $y0 if ($y0 < $y_min) ;
-		$x_max = $x1 if ($x1 > $x_max) ;
-		$y_max = $y1 if ($y1 > $y_max) ;
+		if (!defined ($opt_C) ) {
+			#-
+			#- Bounds weren't discovered above, do it here based on projection of the
+			#- shapefiles' bounds.
+			#- NOTE: This is imperfect because of the projecting going on; the sides might
+			#-       bow out, e.g.  The "right" way would be /very/ slow, and this is "okay"-ish.
+			#-
+			my ($x0, $y0, $x1, $y1) = $shpf[$#flist]->bounds() ;
+			my $pr_point = $srs{$f}->transform($t_srs, [$x0, $y0]);
+			  $x0 = $pr_point->[0] ; $y0 = $pr_point->[1] ;
+			my $pr_point = $srs{$f}->transform($t_srs, [$x1, $y1]);
+			  $x1 = $pr_point->[0] ; $y1 = $pr_point->[1] ;
+			$x_min = $x0 if ($x0 < $x_min) ;
+			$y_min = $y0 if ($y0 < $y_min) ;
+			$x_max = $x1 if ($x1 > $x_max) ;
+			$y_max = $y1 if ($y1 > $y_max) ;
+		}
 		#
 		# Oy, color ranges weren't discovered above either
 		if (defined ($rngfld{$f}) ) {
@@ -418,6 +459,17 @@ foreach my $fx (0 .. $#shpf) {
 						$pr_pt = [$pt->X, $pt->Y] ;			#- null translation (ever gonna happen?)
 					}
 
+					#- Check if in cropped area if any
+					if (defined ($opt_C) ) {
+						if	(  ($pr_pt->[0] < $Clip[0])
+							|| ($pr_pt->[1] < $Clip[1])
+							|| ($pr_pt->[0] > $Clip[2])
+							|| ($pr_pt->[1] > $Clip[3])
+							) {
+								next ;
+						}
+					}
+
 					#- scale and translate
 					my $nx = sprintf "%0.*f", $prec, (($pr_pt->[0]-$x_min)*$scale) ;
 					my $ny = sprintf "%0.*f", $prec, ($opt_y - (($pr_pt->[1]-$y_min)*$scale)) ;
@@ -468,30 +520,66 @@ foreach my $fx (0 .. $#shpf) {
 					my ($nx, $ny) ;							#- next point coords in shapefile coords
 					my @points = $shp->get_part($px) ;				#- get a list of points
 					my $pr_pt = new Geo::Point ;					#- for "pr"ojected point
-					foreach my $pt (@points) {
 
-						#- project the point (or not)
+#!--
+					my @plotpts ;
+					foreach my $pt (@points) {					#- proj & pts into simpler array for Math::Polygon
+						my $pr_pt ;
 						if (defined ($srs{$f}) && defined ($t_srs) ) {
-							$pr_pt = $srs{$f}->transform($t_srs, [$pt->X, $pt->Y]);
+							push @plotpts, $srs{$f}->transform($t_srs, [$pt->X, $pt->Y]);
 						} else {
-							$pr_pt = [$pt->X, $pt->Y] ;
-						}
-
-						#- scale and translate the projected points
-						$nx = ( ( ($pr_pt->[0] - $x_min)*$scale)) ; 
-						$ny = ((($pr_pt->[1]-$y_min)*$scale));
-
-						#- add to list of points iff "-d deltamin" distance away from previously plotted point
-						#- (should this use (sqrt(dx^2+dy^2) i.e. hypotenuseal(?) distance instead of just x,y?)
-						if ( (abs($nx-$px) > $delta) || (abs($ny-$py) > $delta) ) {
-							$pstr .= sprintf "%.*f,%.*f ", $prec, $nx, $prec, $opt_y - $ny ;
-							$px = $nx ; $py = $ny ;
+							push @plotpts, [$pt->X, $pt->Y] ;
 						}
 					}
-					undef $pr_pt ;
-				
-					#- polygon or line, colorby or not
-					if ($type == 5 || $type == 15 || type == 25) {
+
+					if ($type == 5 || $type == 15 || type == 25) {		#-- Polygon
+
+						if ($plotpts[0]->[0] != $plotpts[$#plotpts]->[0] || $plotpts[0]->[1] != $plotpts[$#plotpts]->[1]) {
+							push @plotpts, [$plotpts[0]->[0], $plotpts[0]->[1]] ;
+						}
+						my $mpoly = Math::Polygon->new(points => \@plotpts );
+						$mpoly->clockwise ;
+						if (defined ($opt_C) && $#Clip == 3) {
+							my $npoly = $mpoly->fillClip1	( min ($Clip[0], $Clip[2])
+											, min ($Clip[1], $Clip[3])
+											, max ($Clip[0], $Clip[2])
+											, max ($Clip[1], $Clip[3])
+											) ;
+							if (defined ($npoly) ) {
+								#- clipped
+								undef $mpoly ;
+								$mpoly = $npoly ;
+								undef $npoly ;
+							} else {
+								#- not clipped -- all in or all out??
+								my @lines = polygon_line_clip	( [min ($Clip[0], $Clip[2])
+												, min ($Clip[1], $Clip[3])
+												, max ($Clip[0], $Clip[2])
+												, max ($Clip[1], $Clip[3])]
+												, $mpoly->points
+												) ;
+								if ($#lines < 0) {
+									next ;
+								}
+							}
+						}
+
+						@points = $mpoly->points ;
+						foreach my $pr_pt (@points) {
+
+							#- scale and translate the projected points
+							$nx = ( ( ($pr_pt->[0] - $x_min)*$scale)) ; 
+							$ny = ((($pr_pt->[1]-$y_min)*$scale));
+
+							#- add to list of points iff "-d deltamin" distance away from previously plotted point
+							#- (should this use (sqrt(dx^2+dy^2) i.e. hypotenuseal(?) distance instead of just x,y?)
+							if ( (abs($nx-$px) > $delta) || (abs($ny-$py) > $delta) ) {
+								$pstr .= sprintf "%.*f,%.*f ", $prec, $nx, $prec, $opt_y - $ny ;
+								$px = $nx ; $py = $ny ;
+							}
+						}
+					
+						#- polygon or line, colorby or not
 						if ( (defined ($clrfld{$f}) && $clrfld{$f} ne "") || defined ($sameclr{$f}) || defined ($rngfld{$f}) ) {
 							$g->polygon (	points=>$pstr
 								,	id=>"pgon$shpct"
@@ -503,7 +591,35 @@ foreach my $fx (0 .. $#shpf) {
 								) ;
 						}
 						$shpct++ ;
-					} else {
+					} else {		#-- LINES --#
+						my @lines ;
+						if (defined ($opt_C) && $#Clip == 3) {
+							@lines = polygon_line_clip	( [min ($Clip[0], $Clip[2])
+											, min ($Clip[1], $Clip[3])
+											, max ($Clip[0], $Clip[2])
+											, max ($Clip[1], $Clip[3])]
+											, @plotpts
+											) ;
+						} else {
+							$lines[0] = @plotpts ; ## <== WRONG !!
+						}
+
+						foreach my $seg (@lines) {
+						    foreach my $pr_pt (@{$seg}) {
+
+							#- scale and translate the projected points
+							$nx = ( ( ($pr_pt->[0] - $x_min)*$scale)) ; 
+							$ny = ((($pr_pt->[1]-$y_min)*$scale));
+
+							#- add to list of points iff "-d deltamin" distance away from previously plotted point
+							#- (should this use (sqrt(dx^2+dy^2) i.e. hypotenuseal(?) distance instead of just x,y?)
+							if ( (abs($nx-$px) > $delta) || (abs($ny-$py) > $delta) ) {
+								$pstr .= sprintf "%.*f,%.*f ", $prec, $nx, $prec, $opt_y - $ny ;
+								$px = $nx ; $py = $ny ;
+							}
+						    }
+						}
+					
 						if ( (defined ($clrfld{$f}) && $clrfld{$f} ne "") || defined ($sameclr{$f}) || defined ($rngfld{$f}) ) {
 							$g->polyline (	points=>$pstr
 								,	id=>"line$shpct"
@@ -554,12 +670,14 @@ sub Legend {
 			$prevfile = $file ;
 		}
 
+		my $id = "lgd-".$key."-".$lgdct ; $id =~ s/[^-_0-9a-z]//g ;
 		$svg->polygon	(	points=>&BuiltinShape("square", $opt_x + 12, $lgdct * 14, 10)
-				,	id=>"lgdbox-".$key
+				,	id=> $id
 				,	style=> sprintf "fill:%s; stroke:black; stroke-width:0.2", $colorvalue{$key}
 				) ;
 
-		$svg->text	(	id	=>	'lgdtxt-'.$key
+		$id = "lgdtxt-".$key."-".$lgdct ; $id =~ s/[^-_0-9a-z]//g ;
+		$svg->text	(	id	=>	$id
 				,	x	=>	$opt_x + 24
 				,	y	=>	($lgdct++ * 14)+5
 				,	style	=>	"font-weight: normal; font-size:10; fill:".$colorvalue{$key}.";stroke:black;stroke-width:0.2"
@@ -593,6 +711,7 @@ sub AlphaNum {	my ($word) = @_ ;
 sub GrpName {	my ($ctref, $title) = @_ ;
 
 	$title = "g" . $$ctref . "-" . substr (&AlphaNum ($title), 0, 32) ;
+	$title =~ s/"//g ;
 	$$ctref++ ;
 	return $title ;
 }
@@ -686,4 +805,16 @@ sub RangeColor {	my ($f, $val, $ln) = @_ ;
 
 	return ;
 }
+#-------------------------------------------------------------------------------
+
+sub min { my ($a,$b) = @_ ;
+	return $a if ($a < $b) ;
+	return $b ;
+}
+
+sub max { my ($a,$b) = @_ ;
+	return $a if ($a > $b) ;
+	return $b ;
+}
+
 #-------------------------------------------------------------------------------

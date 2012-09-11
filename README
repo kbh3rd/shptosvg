@@ -37,7 +37,7 @@ Manifest:
 
 Command line arguments and parameters (seen with "-h" option):
 
-Usage: $0 [-x xsize] [-y ysize] [-l] [-p precision] [-d deltamin] [-T srs] [-S srs] inputspec [inputspec ...]\n" ;
+Usage: $0 [-x xsize] [-y ysize] [-l] [-p precision] [-d deltamin] [-T srs] [-S srs] [-C xmin,ymin:xmax,ymax] inputspec [inputspec ...]\n" ;
 
     -l lists the names of the attribute fields in the shapefile and
        then exits.
@@ -51,6 +51,9 @@ Usage: $0 [-x xsize] [-y ysize] [-l] [-p precision] [-d deltamin] [-T srs] [-S s
 
     -S srs is the default Source spatial reference system in Proj4
        format; defaults to rectilinear lat/lon
+
+    -C xmin,ymin:xmax,ymax crops the results to the bounding box
+       defined by opposing corners in the target coordinate system
 
     -p precision is the number of decimal points used in the SVG
        for position coordinates; defaults to 1

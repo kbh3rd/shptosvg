@@ -37,3 +37,6 @@ Migrating items from TODO.txt ...
       variety of built-in shapes: circle, square, diamond, 4-pointed star,
       or 5-pointed star.
 
+    * Crop output to an arbitrary bounding box specified by the user in target
+      units.
+

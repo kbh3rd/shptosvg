@@ -2,6 +2,8 @@ Last updated $Date: 2009/08/21 00:20:09 $
 
 Wish to do list:
 
+* Support islands in polygon shapes.  This is a major shortcoming.
+
 * Automtatically-generated legend for range-colored shapes, as is already
   done with same-colored shapes.
 
@@ -29,9 +31,6 @@ Wish to do list:
 
 * Scale and crop to a specific layer instead of the biggest, with an
   optional margin around the target layer.
-
-* Support an arbitrary bounding box specified by the user.  In target
-  units, somehow.
 
 * Support layers defined in text-delimited files (CSV, e.g.)
 
