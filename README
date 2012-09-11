@@ -1,4 +1,4 @@
-Last updated $Date: 2009/08/21 00:09:20 $
+Last updated $Date: 2012/09/11 17:08:00 $
 
 "shptosvg.pl" is a Perl program (script, whatever) that renders one or
 more ESRI Shapefiles in an SVG (Scalable Vector Graphics) file.  The SVG
